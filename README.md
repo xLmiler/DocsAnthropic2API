@@ -35,7 +35,12 @@ docker run -it -d --name docsanthropic2api \
     -e PORT=8080 \
     yourusername/docsanthropic2api
   ```
-
+### 方法三：Render部署
+- **步骤**：
+    1. fork本仓库
+    2. 进入[Render官网](https://dashboard.render.com/web)
+    3. 创建免费实例和自定义环境变量即可
+    4. 分配的url即为请求url
 ## 配置说明
 
 ### 环境变量
@@ -66,7 +71,7 @@ curl http://localhost:8080/v1/models
 
 ### 聊天请求
 ```bash
-curl http://localhost:8080/hf/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
 -H "Content-Type: application/json" \
 -H "Authorization: Bearer YOUR_API_KEY" \
 -d '{
