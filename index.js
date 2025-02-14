@@ -13,6 +13,7 @@ const CONFIG = {
   API: {
       BASE_URL: "wss://api.inkeep.com/graphql",
       API_KEY: process.env.API_KEY || "sk-123456",
+      SYSTEM_MESSAGE: process.env.SYSTEM_MESSAGE || null
   },
   MODELS: {
       'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
@@ -70,7 +71,7 @@ class AiApiClient {
           
           if (currentContent === null) return acc;
 
-          const currentMessageRole = current.role === "system" || current.role === "user" ? "HUMAN" : "ASSISTANT";
+          const currentMessageRole = current.role === "system" || current.role === "user" ? "Human" : "Assistant";
 
           // 系统消息处理逻辑
           if (current.role === "system") {
@@ -309,7 +310,7 @@ class WebSocketUtils {
                     organizationId: 'org_JfjtEvzbwOikUEUn',
                     integrationId: 'clwtqz9sq001izszu8ms5g4om',
                     chatMode: 'AUTO',
-                    context: requestPayload.systemMessage,
+                    context: requestPayload.systemMessage || CONFIG.API.SYSTEM_MESSAGE,
                     messageAttributes: {},
                     includeAIAnnotations: false,
                     environment: 'production'
