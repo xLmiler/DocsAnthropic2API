@@ -185,7 +185,7 @@ class WebSocketUtils {
     static async createWebSocketClient(requestPayload) {
         // 检查当前连接数是否达到上限
         if (this.activeConnections.size >= this.MAX_CONNECTIONS) {
-            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试！`);
+            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试喵！`);
         }
 
         let timeoutId;
@@ -368,7 +368,7 @@ app.use(cors({
 
 
 // 获取模型列表路由
-app.get('/hf/v1/models', (req, res) => {
+app.get('/v1/models', (req, res) => {
   res.json({
       object: "list",
       data: [{
@@ -381,7 +381,7 @@ app.get('/hf/v1/models', (req, res) => {
 });
 
 // 聊天完成路由
-app.post('/hf/v1/chat/completions', async (req, res) => {
+app.post('/v1/chat/completions', async (req, res) => {
   try {
       const { messages, model, stream } = req.body;
       const authToken = req.headers.authorization?.replace('Bearer ', '');
