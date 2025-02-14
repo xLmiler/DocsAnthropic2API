@@ -1,8 +1,10 @@
 # DocsAnthropic2API 接入指南：基于 Hugging Face Spaces 的实现
 
 ## 项目简介
-本项目提供了一种简单、高效的方式通过 Hugging Face Spaces 访问 DocsAnthropic2API 服务。
+本项目提供了一种简单、高效的方式通过 Hugging Face Spaces 访问 DocsAnthropic2API 服务,并且转换为openAI格式。
 
+## 支持模型
+- claude-3-5-sonnet-20241022
 ## 获取方式
 
 ### 方法一：GitHub 仓库部署
@@ -31,15 +33,32 @@
   - 首次连续 System 消息会合并
   - 后续 System 消息自动转换为 User 消息
 - **User/Assistant 消息**：自动合并
+- **请求格式类型**：openAI格式
 
 ### 上下文特点
 - **注意**：当前实现的上下文为伪造上下文，可能存在一定程度的降智
 
 ## API 接口
-
-### 接口列表
-1. 模型列表：`/hf/v1/models`
-2. 对话服务：`/hf/v1/chat/completions`
+ - 根据抱脸用户名和项目名字构建请求url: https://用户名-项目名字.hf.space/hf/v1
+## 获取模型列表
+```
+curl https://用户名-项目名字.hf.space/hf/v1/models 
+```
+## 聊天请求
+```
+curl https://用户名-项目名字.hf.space/hf/v1/chat/completions \
+-H "Content-Type: application/json" \
+-H "Authorization: Bearer YOUR_API_KEY" \
+-d '{
+  "model": "claude-3-5-sonnet-20241022",
+  "messages": [
+    {
+      "role": "user", 
+      "content": "Hello, can you help me?"
+    }
+  ]
+}'
+```
 
 ### 响应处理
 - **当前支持响应**：流式和非流，
