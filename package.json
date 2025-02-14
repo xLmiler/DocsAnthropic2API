@@ -1,0 +1,19 @@
+{
+  "name": "grok2api",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "yxmiler",
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5",
+    "form-data": "^4.0.0",
+    "puppeteer": "^22.8.2",
+    "uuid": "^9.0.0"
+  }
+}
