@@ -186,7 +186,7 @@ class WebSocketUtils {
     static async createWebSocketClient(requestPayload) {
         // 检查当前连接数是否达到上限
         if (this.activeConnections.size >= this.MAX_CONNECTIONS) {
-            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试喵！`);
+            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试！`);
         }
 
         let timeoutId;
