@@ -9,9 +9,9 @@
 - **地址**：[DocsAnthropic2API](https://github.com/xLmiler/DocsAnthropic2API)
 - **优点**：独立部署，降低被封风险
 - **步骤**：
- 1. 克隆仓库
- 2. 在 Hugging Face 创建空间
- 3. 部署项目
+  1. 克隆仓库或者下载仓库文件
+  2. 在 Hugging Face 创建空间为docker，并且上传文件
+  3. 部署项目
 
 ### 方法二：直接复制空间
 - **地址**：[ClaudeService](https://huggingface.co/spaces/yxmiler/ClaudeService)
