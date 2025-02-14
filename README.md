@@ -16,6 +16,7 @@ docker run -it -d --name docsanthropic2api \
   -p 8080:8080 \
   -e API_KEY=your_api_key \
   -e PORT=8080 \
+  -e SYSTEM_MESSAGE=your_system_message \
   yxmiler/docsanthropic2api:latest
 ```
 
@@ -33,8 +34,9 @@ docker run -it -d --name docsanthropic2api \
     -p 8080:8080 \
     -e API_KEY=your_api_key \
     -e PORT=8080 \
+    -e SYSTEM_MESSAGE=your_system_message \
     yourusername/docsanthropic2api
-  ```
+  ```  
 ### 方法三：Render部署
 - **步骤**：
     1. fork本仓库
@@ -48,6 +50,7 @@ docker run -it -d --name docsanthropic2api \
   - **默认值**：`sk-123456`
   - **建议**：使用自定义密钥增强安全性
 - `PORT`：服务监听端口，可以自行修改（默认8080）
+- `SYSTEM_MESSAGE`：默认的系统提示词，仅在没有使用system规则时生效，默认关闭，值为string类型，可以自行设置
 
 ## 请求逻辑
 
