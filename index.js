@@ -216,8 +216,12 @@ class WebSocketUtils {
                   case 'next':
                       const chatResponse = await this.handleChatResponse(parsedMessage);
                       if (chatResponse) {
-                          responseContent = chatResponse;
-                      }
+                        responseContent = chatResponse;
+                        // 获取到响应后立即关闭连接
+                        isComplete = true;
+                        ws.close();
+                        resolve(responseContent);
+                    }
                       break;
                   case 'complete':
                       isComplete = true;
