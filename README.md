@@ -1,4 +1,4 @@
-# DocsAnthropic2API 接入指南：基于 Hugging Face Spaces 的开源实现
+# DocsAnthropic2API 接入指南：基于 Hugging Face Spaces 的实现
 
 ## 项目简介
 本项目提供了一种简单、高效的方式通过 Hugging Face Spaces 访问 DocsAnthropic2API 服务。
@@ -47,7 +47,7 @@
 
 ### 使用建议
 - 建议使用自定义 API Key
-- 注意上下文限制，大概为50k作用
+- 注意上下文限制，大概为50k左右
 - 延迟略高
 
 ## 注意事项
