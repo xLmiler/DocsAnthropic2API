@@ -172,127 +172,186 @@ class ResponseHandler {
 
 // WebSocket工具类
 class WebSocketUtils {
-  // 生成WebSocket密钥
-  static generateWebSocketKey() {
-      return randomBytes(16).toString('base64');
-  }
+    static activeConnections = new Set(); // 跟踪活跃连接
+    static TIMEOUT = 5 * 60 * 1000; // 5分钟超时时间
+    static MAX_CONNECTIONS = 10; // 最大并发连接数
 
-  // 创建WebSocket客户端
-  static createWebSocketClient(requestPayload) {
-      return new Promise((resolve, reject) => {
-          const websocketKey = this.generateWebSocketKey();
-          const ws = new WebSocket(CONFIG.API.BASE_URL, 'graphql-transport-ws', {
-              headers: {
-                  ...CONFIG.DEFAULT_HEADERS,
-                  'Sec-WebSocket-Key': websocketKey,
-              }
-          });
+    // 生成WebSocket密钥
+    static generateWebSocketKey() {
+        return randomBytes(16).toString('base64');
+    }
 
-          let responseContent = '';
-          let isComplete = false;
+    // 创建WebSocket客户端
+    static async createWebSocketClient(requestPayload) {
+        // 检查当前连接数是否达到上限
+        if (this.activeConnections.size >= this.MAX_CONNECTIONS) {
+            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试！`);
+        }
 
-          ws.on('open', () => {
-              console.log('WebSocket连接已建立');
-              const connectionInitMessage = {
-                  type: 'connection_init',
-                  payload: {
-                      headers: {
-                          Authorization: 'Bearer ee5b7c15ed3553cd6abc407340aad09ac7cb3b9f76d8613a'
-                      }
-                  }
-              };
-              ws.send(JSON.stringify(connectionInitMessage));
-          });
+        let timeoutId;
+        let ws;
 
-          ws.on('message', async (data) => {
-              const message = data.toString();
-              const parsedMessage = JSON.parse(message);
-              
-              switch (parsedMessage.type) {
-                  case 'connection_ack':
-                      console.log('WebSocket连接请求中');
-                      this.sendChatSubscription(ws, requestPayload);
-                      break;
-                  case 'next':
-                      const chatResponse = await this.handleChatResponse(parsedMessage);
-                      if (chatResponse) {
-                        responseContent = chatResponse;
-                        // 获取到响应后立即关闭连接
-                        isComplete = true;
-                        ws.close();
-                        resolve(responseContent);
+        try {
+            return await new Promise((resolve, reject) => {
+                const websocketKey = this.generateWebSocketKey();
+                ws = new WebSocket(CONFIG.API.BASE_URL, 'graphql-transport-ws', {
+                    headers: {
+                        ...CONFIG.DEFAULT_HEADERS,
+                        'Sec-WebSocket-Key': websocketKey,
                     }
-                      break;
-                  case 'complete':
-                      isComplete = true;
-                      ws.close();
-                      resolve(responseContent);
-                      break;
-              }
-          });
+                });
 
-          ws.on('error', (err) => {
-              console.error('WebSocket错误:', err);
-              reject(err);
-          });
+                // 添加到活跃连接集合
+                this.activeConnections.add(ws);
+                console.log(`当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
 
-          ws.on('close', (code, reason) => {
-              console.log('请求完毕，关闭连接');
-              if (!isComplete) {
-                  reject(new Error('WebSocket closed unexpectedly'));
-              }
-          });
-      });
-  }
+                // 设置超时处理
+                timeoutId = setTimeout(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.close();
+                    }
+                    this.activeConnections.delete(ws);
+                    console.log(`连接超时，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
+                    reject(new Error('WebSocket连接超时（5分钟）'));
+                }, this.TIMEOUT);
 
-  // 发送聊天订阅
-  static sendChatSubscription(ws, requestPayload) {
-      const subscribeMessage = {
-          id: uuidv4(),
-          type: 'subscribe',
-          payload: {
-              variables: {
-                  messageInput: requestPayload.contextMessages,
-                  messageContext: null,
-                  organizationId: 'org_JfjtEvzbwOikUEUn',
-                  integrationId: 'clwtqz9sq001izszu8ms5g4om',
-                  chatMode: 'AUTO',
-                  context: requestPayload.systemMessage,
-                  messageAttributes: {},
-                  includeAIAnnotations: false,
-                  environment: 'production'
-              },
-              extensions: {},
-              operationName: 'OnNewSessionChatResult',
-              query: `subscription OnNewSessionChatResult($messageInput: String!, $messageContext: String, $organizationId: ID!, $integrationId: ID, $chatMode: ChatMode, $filters: ChatFiltersInput, $messageAttributes: JSON, $tags: [String!], $workflowId: String, $context: String, $guidance: String, $includeAIAnnotations: Boolean!, $environment: String) {
-                  newSessionChatResult(
-                      input: {messageInput: $messageInput, messageContext: $messageContext, organizationId: $organizationId, integrationId: $integrationId, chatMode: $chatMode, filters: $filters, messageAttributes: $messageAttributes, tags: $tags, workflowId: $workflowId, context: $context, guidance: $guidance, environment: $environment}
-                  ) {
-                      isEnd
-                      sessionId
-                      message {
-                          id
-                          content
-                      }
-                      __typename
-                  }
-              }`
-          }
-      };
+                let responseContent = '';
+                let isComplete = false;
 
-      ws.send(JSON.stringify(subscribeMessage));
-  }
+                ws.on('open', () => {
+                    console.log('WebSocket连接已建立');
+                    const connectionInitMessage = {
+                        type: 'connection_init',
+                        payload: {
+                            headers: {
+                                Authorization: 'Bearer ee5b7c15ed3553cd6abc407340aad09ac7cb3b9f76d8613a'
+                            }
+                        }
+                    };
+                    ws.send(JSON.stringify(connectionInitMessage));
+                });
 
-  // 处理聊天响应
-  static async handleChatResponse(message) {
-      if (message.payload && message.payload.data) {
-          const chatResult = message.payload.data.newSessionChatResult;
-          if (chatResult && chatResult.isEnd == true && chatResult.message) {
-              return chatResult.message.content;
-          }
-      }
-      return null;
-  }
+                ws.on('message', async (data) => {
+                    const message = data.toString();
+                    const parsedMessage = JSON.parse(message);
+                    
+                    switch (parsedMessage.type) {
+                        case 'connection_ack':
+                            console.log('WebSocket连接请求中');
+                            this.sendChatSubscription(ws, requestPayload);
+                            break;
+                        case 'next':
+                            const chatResponse = await this.handleChatResponse(parsedMessage);
+                            if (chatResponse) {
+                                responseContent = chatResponse;
+                                // 获取到响应后立即关闭连接
+                                isComplete = true;
+                                ws.close();
+                                resolve(responseContent);
+                            }
+                            break;
+                        case 'complete':
+                            isComplete = true;
+                            ws.close();
+                            resolve(responseContent);
+                            break;
+                        case 'error':
+                            console.error('WebSocket错误:', parsedMessage.payload[0].message);
+                            ws.close();
+                            reject(new Error(`WebSocket错误: ${parsedMessage.payload[0].message}`));
+                            break;
+                    }
+                });
+
+                ws.on('error', (err) => {
+                    console.error('WebSocket错误:', err);
+                    clearTimeout(timeoutId);
+                    this.activeConnections.delete(ws);
+                    console.log(`连接错误，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.close();
+                    }
+                    reject(err);
+                });
+
+                ws.on('close', (code, reason) => {
+                    console.log('请求完毕，关闭连接');
+                    clearTimeout(timeoutId);
+                    this.activeConnections.delete(ws);
+                    console.log(`连接关闭，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
+                    if (!isComplete) {
+                        reject(new Error('WebSocket closed unexpectedly'));
+                    }
+                });
+            });
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (ws) {
+                this.activeConnections.delete(ws);
+                console.log(`发生错误，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+            }
+            throw error;
+        }
+    }
+
+    // 发送聊天订阅
+    static sendChatSubscription(ws, requestPayload) {
+        const subscribeMessage = {
+            id: uuidv4(),
+            type: 'subscribe',
+            payload: {
+                variables: {
+                    messageInput: requestPayload.contextMessages,
+                    messageContext: null,
+                    organizationId: 'org_JfjtEvzbwOikUEUn',
+                    integrationId: 'clwtqz9sq001izszu8ms5g4om',
+                    chatMode: 'AUTO',
+                    context: requestPayload.systemMessage,
+                    messageAttributes: {},
+                    includeAIAnnotations: false,
+                    environment: 'production'
+                },
+                extensions: {},
+                operationName: 'OnNewSessionChatResult',
+                query: `subscription OnNewSessionChatResult($messageInput: String!, $messageContext: String, $organizationId: ID!, $integrationId: ID, $chatMode: ChatMode, $filters: ChatFiltersInput, $messageAttributes: JSON, $tags: [String!], $workflowId: String, $context: String, $guidance: String, $includeAIAnnotations: Boolean!, $environment: String) {
+                    newSessionChatResult(
+                        input: {messageInput: $messageInput, messageContext: $messageContext, organizationId: $organizationId, integrationId: $integrationId, chatMode: $chatMode, filters: $filters, messageAttributes: $messageAttributes, tags: $tags, workflowId: $workflowId, context: $context, guidance: $guidance, environment: $environment}
+                    ) {
+                        isEnd
+                        sessionId
+                        message {
+                            id
+                            content
+                        }
+                        __typename
+                    }
+                }`
+            }
+        };
+
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(subscribeMessage));
+        }
+    }
+
+    // 处理聊天响应
+    static async handleChatResponse(message) {
+        if (message.payload && message.payload.data) {
+            const chatResult = message.payload.data.newSessionChatResult;
+            if (chatResult && chatResult.isEnd == true && chatResult.message) {
+                return chatResult.message.content;
+            }
+        }
+        return null;
+    }
+
+    // 获取当前活跃连接数
+    static getActiveConnectionsCount() {
+        return this.activeConnections.size;
+    }
 }
 
 // 创建Express应用
@@ -306,6 +365,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+
 
 // 获取模型列表路由
 app.get('/hf/v1/models', (req, res) => {
@@ -347,7 +407,7 @@ app.post('/hf/v1/chat/completions', async (req, res) => {
       }
   } catch (error) {
       console.error('处理请求时发生错误:', error);
-      res.status(500).json({ error: "内部服务器错误", details: error.message });
+      res.status(500).json({ error: "内部服务器错误，请查询日志记录！", details: error.message });
   }
 });
 
