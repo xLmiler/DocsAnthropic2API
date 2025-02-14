@@ -349,7 +349,7 @@ app.post('/hf/v1/chat/completions', async (req, res) => {
 
 // 404处理
 app.use((req, res) => {
-  res.status(404).json({ message: "请使用正确请求路径" });
+  res.status(404).json({ message: "服务创建成功运行中，请根据规则使用正确请求路径" });
 });
 
 // 启动服务器
