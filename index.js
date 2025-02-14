@@ -70,7 +70,7 @@ class AiApiClient {
           
           if (currentContent === null) return acc;
 
-          const currentMessageRole = current.role === "system" ? "USER" : current.role.toUpperCase();
+          const currentMessageRole = current.role === "system" || current.role === "user" ? "HUMAN" : "ASSISTANT";
 
           // 系统消息处理逻辑
           if (current.role === "system") {
