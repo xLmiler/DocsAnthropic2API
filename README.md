@@ -9,6 +9,7 @@
 ## 获取方式
 
 ### 方法一：直接拉取镜像运行
+#### 方式 A：Docker 命令
 - **优点**：快速部署，开箱即用
 - **步骤**：
 ```bash
@@ -19,6 +20,40 @@ docker run -it -d --name docsanthropic2api \
   -e SYSTEM_MESSAGE=your_system_message \
   yxmiler/docsanthropic2api:latest
 ```
+
+#### 方式 B：Docker Compose
+- **优点**：配置管理更简单，易于扩展
+- **步骤**：
+  1. 创建 `docker-compose.yml` 文件：
+  ```yaml
+  version: '3.8'
+  services:
+    docsanthropic2api:
+      image: yxmiler/docsanthropic2api:latest
+      container_name: docsanthropic2api
+      ports:
+        - "8080:8080"
+      environment:
+        - API_KEY=your_api_key
+        - PORT=8080
+        - SYSTEM_MESSAGE=your_system_message
+      restart: unless-stopped
+  ```
+  
+  2. 启动服务：
+  ```bash
+  docker-compose up -d
+  ```
+
+  3. 查看运行状态：
+  ```bash
+  docker-compose ps
+  ```
+
+  4. 停止服务：
+  ```bash
+  docker-compose down
+  ```
 
 ### 方法二：本地构建镜像
 - **优点**：可以自定义镜像，更灵活
