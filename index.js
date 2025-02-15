@@ -242,7 +242,6 @@ class WebSocketUtils {
                                 if (stream && res) {
                                     const diff = this.getMessageDiff(prevContent, responseContent);
                                     if (diff) {
-                                        console.log(diff);
                                         await ResponseHandler.handleStreamResponse(diff, "claude-3-5-sonnet-20241022", res);
                                         prevContent = responseContent;
                                     }
