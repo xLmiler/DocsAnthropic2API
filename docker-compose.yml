@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+docsanthropic2api:
+  image: yxmiler/docsanthropic2api:latest
+  container_name: docsanthropic2api
+  ports:
+    - "8080:8080"
+  environment:
+    - API_KEY=sk-123456
+    - PORT=8080
+    - NODE_ENV=production
+  restart: unless-stopped
