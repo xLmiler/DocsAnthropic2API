@@ -5,24 +5,32 @@ import { randomBytes } from 'crypto';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-// 配置加载
+// 初始化环境变量
 dotenv.config();
 
-// 配置常量
-const CONFIG = {
-    API: {
+// 配置常量管理
+class Config {
+    static API = {
         BASE_URL: "wss://api.inkeep.com/graphql",
         API_KEY: process.env.API_KEY || "sk-123456",
-        SYSTEM_MESSAGE: process.env.SYSTEM_MESSAGE || null
-    },
-    MODELS: {
-        'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
-    },
-    SERVER: {
+        SYSTEM_MESSAGE: process.env.SYSTEM_MESSAGE || null,
+        AUTH_TOKEN: 'Bearer ee5b7c15ed3553cd6abc407340aad09ac7cb3b9f76d8613a',
+        ORG_ID: 'org_JfjtEvzbwOikUEUn',
+        INTEGRATION_ID: 'clwtqz9sq001izszu8ms5g4om'
+    };
+
+    static MODELS = {
+        'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022'
+    };
+
+    static SERVER = {
         PORT: process.env.PORT || 3000,
-        BODY_LIMIT: '5mb'
-    },
-    DEFAULT_HEADERS: {
+        BODY_LIMIT: '5mb',
+        TIMEOUT: 5 * 60 * 1000,
+        MAX_CONNECTIONS: 10
+    };
+
+    static WS_HEADERS = {
         'Host': 'api.inkeep.com',
         'Connection': 'Upgrade',
         'Pragma': 'no-cache',
@@ -35,20 +43,27 @@ const CONFIG = {
         'Accept-Language': 'zh-CN,zh;q=0.9',
         'Sec-WebSocket-Extensions': 'permessage-deflate; client_max_window_bits',
         'Sec-WebSocket-Protocol': 'graphql-transport-ws'
-    }
-};
+    };
+}
 
-// AI API 客户端类
-class AiApiClient {
-    constructor(modelId) {
-        this.modelId = CONFIG.MODELS[modelId];
-        if (!this.modelId) {
-            throw new Error(`不支持的模型: ${modelId}`);
-        }
+// 日志工具类
+class Logger {
+    static info(message, ...args) {
+        console.log(`[INFO] ${message}`, ...args);
     }
 
-    // 处理消息内容
-    processMessageContent(content) {
+    static error(message, ...args) {
+        console.error(`[ERROR] ${message}`, ...args);
+    }
+
+    static warn(message, ...args) {
+        console.warn(`[WARN] ${message}`, ...args);
+    }
+}
+
+// 消息处理工具类
+class MessageUtils {
+    static processContent(content) {
         if (typeof content === 'string') return content;
         if (Array.isArray(content)) {
             return content
@@ -59,7 +74,20 @@ class AiApiClient {
         return typeof content === 'object' ? content.text || null : null;
     }
 
-    // 转换消息格式
+    static async getMessageDiff(prevContent, newContent) {
+        return newContent.slice(prevContent.length);
+    }
+}
+
+// AI API 客户端类
+class AiApiClient {
+    constructor(modelId) {
+        this.modelId = Config.MODELS[modelId];
+        if (!this.modelId) {
+            throw new Error(`不支持的模型: ${modelId}`);
+        }
+    }
+
     async transformMessages(request) {
         let systemMessageList = [];
         let systemMergeMode = false;
@@ -67,7 +95,7 @@ class AiApiClient {
 
         const contextMessages = await request.messages.reduce(async (accPromise, current) => {
             const acc = await accPromise;
-            const currentContent = this.processMessageContent(current.content);
+            const currentContent = MessageUtils.processContent(current.content);
 
             if (currentContent === null) return acc;
 
@@ -114,32 +142,308 @@ class AiApiClient {
     }
 }
 
-// 响应处理类
-class ResponseHandler {
-    // 流式响应处理
-    static async handleStreamResponse(responseContent, model, res) {
-        if (!res.headersSent) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
+// WebSocket 连接管理器
+class WebSocketManager {
+    static connections = new Set();
+
+    static canAddConnection() {
+        return this.connections.size < Config.SERVER.MAX_CONNECTIONS;
+    }
+
+    static addConnection(ws) {
+        this.connections.add(ws);
+        Logger.info(`新增连接，当前连接数: ${this.connections.size}/${Config.SERVER.MAX_CONNECTIONS}`);
+    }
+
+    static removeConnection(ws) {
+        this.connections.delete(ws);
+        Logger.info(`移除连接，当前连接数: ${this.connections.size}/${Config.SERVER.MAX_CONNECTIONS}`);
+    }
+
+    static getConnectionCount() {
+        return this.connections.size;
+    }
+}
+
+// WebSocket 客户端类
+class WebSocketClient {
+    constructor(requestPayload, stream = false, res = null) {
+        this.requestPayload = requestPayload;
+        this.stream = stream;
+        this.res = res;
+        this.ws = null;
+        this.timeoutId = null;
+        this.responseContent = '';
+        this.prevContent = '';
+        this.isComplete = false;
+        this.streamComplete = false;
+    }
+
+    async connect() {
+        if (!WebSocketManager.canAddConnection()) {
+            throw new Error(`连接数已达上限 (${Config.SERVER.MAX_CONNECTIONS})`);
         }
 
-        res.write(`data: ${JSON.stringify({
+        try {
+            return await this.createConnection();
+        } catch (error) {
+            this.cleanup();
+            throw error;
+        }
+    }
+
+    createConnection() {
+        return new Promise((resolve, reject) => {
+            this.ws = new WebSocket(Config.API.BASE_URL, 'graphql-transport-ws', {
+                headers: {
+                    ...Config.WS_HEADERS,
+                    'Sec-WebSocket-Key': randomBytes(16).toString('base64'),
+                }
+            });
+
+            WebSocketManager.addConnection(this.ws);
+            this.setupTimeout(reject);
+            this.setupEventHandlers(resolve, reject);
+        });
+    }
+
+    setupTimeout(reject) {
+        this.timeoutId = setTimeout(() => {
+            this.cleanup();
+            reject(new Error('WebSocket连接超时'));
+        }, Config.SERVER.TIMEOUT);
+    }
+
+    setupEventHandlers(resolve, reject) {
+        this.ws.on('open', () => this.handleOpen());
+        this.ws.on('message', async (data) => {
+            await this.handleMessage(data, resolve, reject);
+        });
+        this.ws.on('error', (error) => this.handleError(error, reject));
+        this.ws.on('close', () => this.handleClose(reject));
+    }
+
+    handleOpen() {
+        Logger.info('WebSocket连接已建立');
+        const connectionInitMessage = {
+            type: 'connection_init',
+            payload: {
+                headers: {
+                    Authorization: Config.API.AUTH_TOKEN
+                }
+            }
+        };
+        this.ws.send(JSON.stringify(connectionInitMessage));
+    }
+
+    async handleMessage(data, resolve, reject) {
+        try {
+            const message = JSON.parse(data.toString());
+
+            switch (message.type) {
+                case 'connection_ack':
+                    Logger.info('WebSocket连接认证成功');
+                    this.sendChatSubscription();
+                    if (this.stream && this.res) {
+                        this.setupStreamHeaders();
+                    }
+                    break;
+
+                case 'next':
+                    const chatResponse = await this.processChatResponse(message);
+                    if (chatResponse) {
+                        this.responseContent = chatResponse;
+                        if (this.stream && this.res) {
+                            const diff = await MessageUtils.getMessageDiff(this.prevContent, this.responseContent);
+                            if (diff) {
+                                await ResponseHandler.handleStreamResponse(
+                                    diff,
+                                    "claude-3-5-sonnet-20241022",
+                                    this.res
+                                );
+                                this.prevContent = this.responseContent;
+                            }
+                        }
+                    }
+                    break;
+
+                case 'complete':
+                    this.isComplete = true;
+                    if (this.stream && this.res) {
+                        this.res.write('data: [DONE]\n\n');
+                        this.res.end();
+                        this.streamComplete = true;
+                    }
+                    this.ws.close();
+                    resolve(this.responseContent);
+                    break;
+
+                case 'error':
+                    const errorMessage = message.payload[0].message;
+                    // 检查是否为内存相关错误,进行降级处理,不抛出错误   
+                    if (errorMessage.includes('maxmemory')) {
+                        Logger.warn('WebSocket警告:', errorMessage);
+                        if (this.stream && this.res && !this.streamComplete) {
+                            this.res.write('data: [DONE]\n\n');
+                            this.res.end();
+                            this.isComplete = true;
+                            this.ws.close();
+                        } else {
+                            resolve(this.responseContent);
+                            this.isComplete = true;
+                            this.ws.close();
+                        }
+                    } else {
+                        Logger.error('WebSocket错误:', errorMessage);
+                        if (this.stream && this.res && !this.streamComplete) {
+                            this.res.write('data: [DONE]\n\n');
+                            this.res.end();
+                        }
+                        this.ws.close();
+                        reject(new Error(`WebSocket错误: ${errorMessage}`));
+                    }
+                    break;
+            }
+        } catch (error) {
+            Logger.error('处理消息错误:', error);
+            reject(error);
+        }
+    }
+
+    handleError(error, reject) {
+        // 检查是否为内存相关错误,进行降级处理   
+        if (error.includes('maxmemory')) {
+            Logger.warn('WebSocket内存警告:', error);
+            return;
+        }
+        // 其他错误正常处理
+        Logger.error('WebSocket错误:', error);
+        this.cleanup();
+        reject(error);
+    }
+
+    handleClose(reject) {
+        Logger.info('WebSocket连接关闭');
+        this.cleanup();
+        if (!this.isComplete) {
+            reject(new Error('WebSocket意外关闭'));
+        }
+    }
+
+    setupStreamHeaders() {
+        this.res.setHeader('Content-Type', 'text/event-stream');
+        this.res.setHeader('Cache-Control', 'no-cache');
+        this.res.setHeader('Connection', 'keep-alive');
+    }
+
+    sendChatSubscription() {
+        const subscribeMessage = {
+            id: uuidv4(),
+            type: 'subscribe',
+            payload: {
+                variables: {
+                    messageInput: this.requestPayload.contextMessages,
+                    messageContext: null,
+                    organizationId: Config.API.ORG_ID,
+                    integrationId: Config.API.INTEGRATION_ID,
+                    chatMode: 'AUTO',
+                    context: this.requestPayload.systemMessage || Config.API.SYSTEM_MESSAGE,
+                    messageAttributes: {},
+                    includeAIAnnotations: false,
+                    environment: 'production'
+                },
+                extensions: {},
+                operationName: 'OnNewSessionChatResult',
+                query: "subscription OnNewSessionChatResult($messageInput: String!, $messageContext: String, $organizationId: ID!, $integrationId: ID, $chatMode: ChatMode, $filters: ChatFiltersInput, $messageAttributes: JSON, $tags: [String!], $workflowId: String, $context: String, $guidance: String, $includeAIAnnotations: Boolean!, $environment: String) {\n  newSessionChatResult(\n    input: {messageInput: $messageInput, messageContext: $messageContext, organizationId: $organizationId, integrationId: $integrationId, chatMode: $chatMode, filters: $filters, messageAttributes: $messageAttributes, tags: $tags, workflowId: $workflowId, context: $context, guidance: $guidance, environment: $environment}\n  ) {\n    isEnd\n    sessionId\n    message {\n      id\n      content\n      __typename\n      ... on BotMessage {\n        citations {\n          citationNumber\n          title\n          url\n          rootRecordId\n          rootRecordType\n          __typename\n        }\n        __typename\n      }\n    }\n    aiAnnotations @include(if: $includeAIAnnotations) {\n      shouldEscalateToSupport {\n        strict\n        standard\n        __typename\n      }\n      __typename\n    }\n    __typename\n  }\n}"
+            }
+        };
+
+        if (this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(subscribeMessage));
+        }
+    }
+
+    getChatSubscriptionQuery() {
+        return `subscription OnNewSessionChatResult(
+            $messageInput: String!, 
+            $messageContext: String, 
+            $organizationId: ID!, 
+            $integrationId: ID, 
+            $chatMode: ChatMode, 
+            $filters: ChatFiltersInput, 
+            $messageAttributes: JSON, 
+            $tags: [String!], 
+            $workflowId: String, 
+            $context: String, 
+            $guidance: String, 
+            $includeAIAnnotations: Boolean!, 
+            $environment: String
+        ) {
+            newSessionChatResult(
+                input: {
+                    messageInput: $messageInput, 
+                    messageContext: $messageContext, 
+                    organizationId: $organizationId, 
+                    integrationId: $integrationId, 
+                    chatMode: $chatMode, 
+                    filters: $filters, 
+                    messageAttributes: $messageAttributes, 
+                    tags: $tags, 
+                    workflowId: $workflowId, 
+                    context: $context, 
+                    guidance: $guidance, 
+                    environment: $environment
+                }
+            ) {
+                isEnd
+                sessionId
+                message {
+                    id
+                    content
+                }
+                __typename
+            }
+        }`;
+    }
+
+    async processChatResponse(message) {
+        if (message.payload?.data?.newSessionChatResult?.message) {
+            return message.payload.data.newSessionChatResult.message.content;
+        }
+        return null;
+    }
+
+    cleanup() {
+        clearTimeout(this.timeoutId);
+        if (this.ws) {
+            WebSocketManager.removeConnection(this.ws);
+            if (this.ws.readyState === WebSocket.OPEN) {
+                this.ws.close();
+            }
+        }
+    }
+}
+
+// 响应处理类
+class ResponseHandler {
+    static async handleStreamResponse(content, model, res) {
+        const response = {
             id: uuidv4(),
             object: 'chat.completion.chunk',
             created: Math.floor(Date.now() / 1000),
             model: model,
             choices: [{
                 index: 0,
-                delta: { content: responseContent },
+                delta: { content },
                 finish_reason: null
             }]
-        })}\n\n`);
+        };
+
+        res.write(`data: ${JSON.stringify(response)}\n\n`);
     }
 
-    // 普通响应处理
-    static async handleNormalResponse(userMessage, responseContent, model, res) {
-        res.json({
+    static async handleNormalResponse(userMessage, content, model, res) {
+        const response = {
             id: uuidv4(),
             object: "chat.completion",
             created: Math.floor(Date.now() / 1000),
@@ -148,227 +452,34 @@ class ResponseHandler {
                 index: 0,
                 message: {
                     role: "assistant",
-                    content: responseContent
+                    content: content
                 },
                 finish_reason: "stop"
             }],
             usage: {
                 prompt_tokens: userMessage.length,
-                completion_tokens: responseContent.length,
-                total_tokens: userMessage.length + responseContent.length
-            }
-        });
-    }
-}
-
-// WebSocket工具类
-class WebSocketUtils {
-    static activeConnections = new Set(); // 跟踪活跃连接
-    static TIMEOUT = 5 * 60 * 1000; // 5分钟超时时间
-    static MAX_CONNECTIONS = 10; // 最大并发连接数
-
-    // 生成WebSocket密钥
-    static generateWebSocketKey() {
-        return randomBytes(16).toString('base64');
-    }
-    static getMessageDiff(prevContent, newContent) {
-        return newContent.slice(prevContent.length);
-    }
-    // 创建WebSocket客户端
-    static async createWebSocketClient(requestPayload, stream = false, res = null) {
-        // 检查当前连接数是否达到上限
-        if (this.activeConnections.size >= this.MAX_CONNECTIONS) {
-            throw new Error(`当前连接数已达到上限 (${this.MAX_CONNECTIONS})，请稍后重试！`);
-        }
-
-        let timeoutId;
-        let ws;
-
-        try {
-            return await new Promise((resolve, reject) => {
-                const websocketKey = this.generateWebSocketKey();
-                ws = new WebSocket(CONFIG.API.BASE_URL, 'graphql-transport-ws', {
-                    headers: {
-                        ...CONFIG.DEFAULT_HEADERS,
-                        'Sec-WebSocket-Key': websocketKey,
-                    }
-                });
-
-                // 添加到活跃连接集合
-                this.activeConnections.add(ws);
-                console.log(`当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
-
-                // 设置超时处理
-                timeoutId = setTimeout(() => {
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.close();
-                    }
-                    this.activeConnections.delete(ws);
-                    console.log(`连接超时，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
-                    reject(new Error('WebSocket连接超时（5分钟）'));
-                }, this.TIMEOUT);
-
-                let responseContent = '';
-                let prevContent = '';
-                let isComplete = false;
-
-                ws.on('open', () => {
-                    console.log('WebSocket连接已建立');
-                    const connectionInitMessage = {
-                        type: 'connection_init',
-                        payload: {
-                            headers: {
-                                Authorization: 'Bearer ee5b7c15ed3553cd6abc407340aad09ac7cb3b9f76d8613a'
-                            }
-                        }
-                    };
-                    ws.send(JSON.stringify(connectionInitMessage));
-                });
-
-                ws.on('message', async (data) => {
-                    const message = data.toString();
-                    const parsedMessage = JSON.parse(message);
-
-                    switch (parsedMessage.type) {
-                        case 'connection_ack':
-                            console.log('WebSocket连接请求中');
-                            this.sendChatSubscription(ws, requestPayload);
-                            break;
-                        case 'next':
-                            const chatResponse = await this.handleChatResponse(parsedMessage);
-                            if (chatResponse) {
-                                responseContent = chatResponse;
-
-                                if (stream && res) {
-                                    const diff = this.getMessageDiff(prevContent, responseContent);
-                                    if (diff) {
-                                        await ResponseHandler.handleStreamResponse(diff, "claude-3-5-sonnet-20241022", res);
-                                        prevContent = responseContent;
-                                    }
-                                }
-                            }
-                            break;
-                        case 'complete':
-                            isComplete = true;
-                            if (stream && res) {
-                                res.write('data: [DONE]\n\n');
-                                res.end();
-                            }
-                            ws.close();
-                            resolve(responseContent);
-                            break;
-                        case 'error':
-                            console.error('WebSocket错误:', parsedMessage.payload[0].message);
-                            ws.close();
-                            reject(new Error(`WebSocket错误: ${parsedMessage.payload[0].message}`));
-                            break;
-                    }
-                });
-
-                ws.on('error', (err) => {
-                    console.error('WebSocket错误:', err);
-                    clearTimeout(timeoutId);
-                    this.activeConnections.delete(ws);
-                    console.log(`连接错误，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
-                    if (ws.readyState === WebSocket.OPEN) {
-                        ws.close();
-                    }
-                    reject(err);
-                });
-
-                ws.on('close', (code, reason) => {
-                    console.log('请求完毕，关闭连接');
-                    clearTimeout(timeoutId);
-                    this.activeConnections.delete(ws);
-                    console.log(`连接关闭，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
-                    if (!isComplete) {
-                        reject(new Error('WebSocket closed unexpectedly'));
-                    }
-                });
-            });
-        } catch (error) {
-            clearTimeout(timeoutId);
-            if (ws) {
-                this.activeConnections.delete(ws);
-                console.log(`发生错误，当前活跃连接数: ${this.activeConnections.size}/${this.MAX_CONNECTIONS}`);
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.close();
-                }
-            }
-            throw error;
-        }
-    }
-
-    // 发送聊天订阅
-    static sendChatSubscription(ws, requestPayload) {
-        const subscribeMessage = {
-            id: uuidv4(),
-            type: 'subscribe',
-            payload: {
-                variables: {
-                    messageInput: requestPayload.contextMessages,
-                    messageContext: null,
-                    organizationId: 'org_JfjtEvzbwOikUEUn',
-                    integrationId: 'clwtqz9sq001izszu8ms5g4om',
-                    chatMode: 'AUTO',
-                    context: requestPayload.systemMessage || CONFIG.API.SYSTEM_MESSAGE,
-                    messageAttributes: {},
-                    includeAIAnnotations: false,
-                    environment: 'production'
-                },
-                extensions: {},
-                operationName: 'OnNewSessionChatResult',
-                query: `subscription OnNewSessionChatResult($messageInput: String!, $messageContext: String, $organizationId: ID!, $integrationId: ID, $chatMode: ChatMode, $filters: ChatFiltersInput, $messageAttributes: JSON, $tags: [String!], $workflowId: String, $context: String, $guidance: String, $includeAIAnnotations: Boolean!, $environment: String) {
-                    newSessionChatResult(
-                        input: {messageInput: $messageInput, messageContext: $messageContext, organizationId: $organizationId, integrationId: $integrationId, chatMode: $chatMode, filters: $filters, messageAttributes: $messageAttributes, tags: $tags, workflowId: $workflowId, context: $context, guidance: $guidance, environment: $environment}
-                    ) {
-                        isEnd
-                        sessionId
-                        message {
-                            id
-                            content
-                        }
-                        __typename
-                    }
-                }`
+                completion_tokens: content.length,
+                total_tokens: userMessage.length + content.length
             }
         };
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify(subscribeMessage));
-        }
-    }
 
-    // 处理聊天响应
-    static async handleChatResponse(message) {
-        if (message.payload && message.payload.data) {
-            const chatResult = message.payload.data.newSessionChatResult;
-            if (chatResult && chatResult.message) {
-                return chatResult.message.content;
-            }
-        }
-        return null;
-    }
-
-    // 获取当前活跃连接数
-    static getActiveConnectionsCount() {
-        return this.activeConnections.size;
+        res.json(response);
     }
 }
 
-// 创建Express应用
+// Express 应用配置
 const app = express();
 
 // 中间件配置
-app.use(express.json({ limit: CONFIG.SERVER.BODY_LIMIT }));
-app.use(express.urlencoded({ extended: true, limit: CONFIG.SERVER.BODY_LIMIT }));
+app.use(express.json({ limit: Config.SERVER.BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: Config.SERVER.BODY_LIMIT }));
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-
-// 获取模型列表路由
+// 路由处理
 app.get('/v1/models', (req, res) => {
     res.json({
         object: "list",
@@ -381,41 +492,45 @@ app.get('/v1/models', (req, res) => {
     });
 });
 
-// 聊天完成路由
 app.post('/v1/chat/completions', async (req, res) => {
     try {
         const { messages, model, stream } = req.body;
         const authToken = req.headers.authorization?.replace('Bearer ', '');
 
-        if (authToken !== CONFIG.API.API_KEY) {
-            return res.status(401).json({ error: "Unauthorized" });
+        if (authToken !== Config.API.API_KEY) {
+            return res.status(401).json({ error: "未授权访问" });
         }
 
-        const apiClient = new AiApiClient(req.body.model);
-        const requestPayload = await apiClient.transformMessages(req.body);
-
-        const userMessage = messages.reverse().find(message => message.role === 'user')?.content;
+        const apiClient = new AiApiClient(model);
+        const requestPayload = await apiClient.transformMessages(req.body); 
+        const userMessage = messages.find(msg => msg.role === 'user')?.content;
         if (!userMessage) {
-            return res.status(400).json({ error: "缺失用户消息" });
+            return res.status(400).json({ error: "缺少用户消息" });
         }
 
-        const responseContent = await WebSocketUtils.createWebSocketClient(requestPayload, stream, stream ? res : null);
+        const wsClient = new WebSocketClient(requestPayload, stream, stream ? res : null);
+        const responseContent = await wsClient.connect();
 
         if (!stream) {
             await ResponseHandler.handleNormalResponse(userMessage, responseContent, model, res);
         }
     } catch (error) {
-        console.error('处理请求时发生错误:', error);
-        res.status(500).json({ error: "内部服务器错误，请查询日志记录！", details: error.message });
+        Logger.error('处理请求错误:', error);
+        res.status(500).json({
+            error: "服务器内部错误",
+            message: error.message
+        });
     }
 });
 
 // 404处理
 app.use((req, res) => {
-    res.status(404).json({ message: "服务创建成功运行中，请根据规则使用正确请求路径" });
+    res.status(404).json({
+        message: "服务运行中，请使用正确的API路径"
+    });
 });
 
 // 启动服务器
-app.listen(CONFIG.SERVER.PORT, () => {
-    console.log(`服务器运行在 http://localhost:${CONFIG.SERVER.PORT}`);
+app.listen(Config.SERVER.PORT, () => {
+    Logger.info(`服务器启动成功: http://localhost:${Config.SERVER.PORT}`);
 });
