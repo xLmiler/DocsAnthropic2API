@@ -281,7 +281,7 @@ class WebSocketClient {
                 case 'error':
                     const errorMessage = message.payload[0].message;
                     // 检查是否为内存相关错误,进行降级处理,不抛出错误   
-                    if (errorMessage.includes('maxmemory')) {
+                    if (errorMessage.includes('maxmemory') || errorMessage.includes('Cannot process')) {
                         Logger.warn('WebSocket警告:', errorMessage);
                         if (this.stream && this.res && !this.streamComplete) {
                             this.res.write('data: [DONE]\n\n');
@@ -312,8 +312,8 @@ class WebSocketClient {
 
     handleError(error, reject) {
         // 检查是否为内存相关错误,进行降级处理   
-        if (error.includes('maxmemory')) {
-            Logger.warn('WebSocket内存警告:', error);
+        if (error.includes('maxmemory') || || error.includes('Cannot process')) {
+            Logger.warn('WebSocket警告:', error);
             return;
         }
         // 其他错误正常处理
