@@ -323,7 +323,7 @@ class WebSocketClient {
 
     handleError(error, reject) {
         // 检查是否为内存相关错误,进行降级处理   
-        if (error.includes('maxmemory') || || error.includes('Cannot process')) {
+        if (error.includes('maxmemory') || error.includes('Cannot process')) {
             Logger.warn('WebSocket警告:', error);
             return;
         }
