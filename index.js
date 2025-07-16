@@ -2,6 +2,8 @@ import express from 'express';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 import fetch from 'node-fetch';
+import cors from 'cors';
+
 
 // 加载环境变量
 dotenv.config();
@@ -10,13 +12,15 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // 中间件
+app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Inkeep API 配置
 const INKEEP_CONFIG = {
     CHALLENGE_URL: 'https://api.inkeep.com/v1/challenge',
     CHAT_URL: 'https://api.inkeep.com/v1/chat/completions',
-    DEFAULT_AUTH_TOKEN: process.env.INKEEP_AUTH_TOKEN || null,
+    DEFAULT_AUTH_TOKEN: process.env.INKEEP_AUTH_TOKEN || '8f9c3d77d99a05677fd5bdf7a1f4fc1a6e65ce12aabe65cf',
     DEFAULT_REFERER: 'https://docs.anthropic.com/',
     DEFAULT_ORIGIN: 'https://docs.anthropic.com'
 };
