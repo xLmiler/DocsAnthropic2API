@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 const INKEEP_CONFIG = {
     CHALLENGE_URL: 'https://api.inkeep.com/v1/challenge',
     CHAT_URL: 'https://api.inkeep.com/v1/chat/completions',
-    DEFAULT_AUTH_TOKEN: process.env.INKEEP_AUTH_TOKEN || '8f9c3d77d99a05677fd5bdf7a1f4fc1a6e65ce12aabe65cf',
+    DEFAULT_AUTH_TOKEN: process.env.INKEEP_AUTH_TOKEN || null,
     DEFAULT_REFERER: 'https://docs.anthropic.com/',
     DEFAULT_ORIGIN: 'https://docs.anthropic.com'
 };
@@ -573,18 +573,12 @@ app.use('*', (req, res) => {
     });
 });
 
+if(INKEEP_CONFIG.DEFAULT_AUTH_TOKEN === null){
+    console.log('请设置INKEEP_AUTH_TOKEN');
+    process.exit(1);
+}
+
 // 启动服务器
 app.listen(PORT, () => {
     console.log(`Inkeep API Proxy Server is running on port ${PORT}`);
-});
-
-// 优雅关闭
-process.on('SIGINT', () => {
-    console.log('\n Gracefully shutting down...');
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n Gracefully shutting down...');
-    process.exit(0);
 });
