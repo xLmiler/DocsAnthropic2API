@@ -4,7 +4,7 @@
 本项目提供了一种简单、高效的方式通过 Docker 部署 DocsAnthropic2API 服务，并转换为 OpenAI 格式的 API。
 
 ## 支持模型
-- claude-3-5-sonnet-20241022
+- claude-3-7-sonnet-20250219
 
 ## 获取方式
 
@@ -14,10 +14,10 @@
 - **步骤**：
 ```bash
 docker run -it -d --name docsanthropic2api \
-  -p 8080:8080 \
+  -p 3000:3000 \
   -e API_KEY=your_api_key \
-  -e PORT=8080 \
-  -e SYSTEM_MESSAGE=your_system_message \
+  -e PORT=3000 \
+  -e INKEEP_AUTH_TOKEN=your_INKEEP_AUTH_TOKEN \
   yxmiler/docsanthropic2api:latest
 ```
 
@@ -32,11 +32,11 @@ docker run -it -d --name docsanthropic2api \
       image: yxmiler/docsanthropic2api:latest
       container_name: docsanthropic2api
       ports:
-        - "8080:8080"
+        - "3000:3000"
       environment:
         - API_KEY=your_api_key
-        - PORT=8080
-        - SYSTEM_MESSAGE=your_system_message
+        - PORT=3000
+        - INKEEP_AUTH_TOKEN=your_INKEEP_AUTH_TOKENe
       restart: unless-stopped
   ```
   
@@ -66,10 +66,10 @@ docker run -it -d --name docsanthropic2api \
   3. 运行容器：
   ```bash
   docker run -it -d --name docsanthropic2api \
-    -p 8080:8080 \
+    -p 3000:3000 \
     -e API_KEY=your_api_key \
-    -e PORT=8080 \
-    -e SYSTEM_MESSAGE=your_system_message \
+    -e PORT=3000 \
+    -e INKEEP_AUTH_TOKEN=your_INKEEP_AUTH_TOKEN \
     yourusername/docsanthropic2api
   ```  
 ### 方法三：Render部署
@@ -84,18 +84,16 @@ docker run -it -d --name docsanthropic2api \
 - `API_KEY`：鉴权密钥
   - **默认值**：`sk-123456`
   - **建议**：使用自定义密钥增强安全性
-- `PORT`：服务监听端口，可以自行修改（默认8080）
-- `SYSTEM_MESSAGE`：默认的系统提示词，仅在没有使用system规则时生效，默认关闭，值为string类型，可以自行设置
+- `PORT`：服务监听端口，可以自行修改（默认3000）
+- `INKEEP_AUTH_TOKEN`：抓包获取的对应密钥
 
 ## 请求逻辑
 
 ### 消息处理
 - **System 消息**：
-  - 首次连续 System 消息会合并
-  - 后续 System 消息自动转换为 User 消息
+  - 自动转换为 User 消息
 - **User/Assistant 消息**：自动合并
-- **请求格式**：OpenAI 格式
-- **并行限制**：最高支持10
+- **请求格式**：OpenAI 格式，支持所有openai参数
 
 ### 上下文特点
 - **注意**：当前实现的上下文为伪造上下文，可能存在一定程度的降智
@@ -104,16 +102,16 @@ docker run -it -d --name docsanthropic2api \
 
 ### 获取模型列表
 ```bash
-curl http://localhost:8080/v1/models 
+curl http://localhost:3000/v1/models 
 ```
 
 ### 聊天请求
 ```bash
-curl http://localhost:8080/v1/chat/completions \
+curl http://localhost:3000/v1/chat/completions \
 -H "Content-Type: application/json" \
 -H "Authorization: Bearer YOUR_API_KEY" \
 -d '{
-  "model": "claude-3-5-sonnet-20241022",
+  "model": "claude-3-7-sonnet-20250219",
   "messages": [
     {
       "role": "user", 
@@ -128,7 +126,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### 使用建议
 - 建议使用自定义 API Key
-- 注意上下文限制，大概为50k-100k左右
+- 注意上下文限制，大概为30次对话轮换
 - 可能存在一定延迟
 
 ## 注意事项
