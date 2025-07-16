@@ -9,5 +9,5 @@ docsanthropic2api:
   environment:
     - API_KEY=sk-123456
     - PORT=3000
-    - INKEEP_AUTH_TOKEN=yor INKEEP_AUTH_TOKEN
+    - INKEEP_AUTH_TOKEN=your_INKEEP_AUTH_TOKEN
   restart: unless-stopped
