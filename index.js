@@ -4,7 +4,6 @@ import crypto from 'crypto';
 import fetch from 'node-fetch';
 import cors from 'cors';
 
-
 // 加载环境变量
 dotenv.config();
 
@@ -106,6 +105,50 @@ class InkeepChallenge {
 // 工具类
 class MessageUtils {
     /**
+     * 将字符串内容转换为数组形式
+     * @param {string|Array} content 消息内容
+     * @returns {Array} 转换后的内容数组
+     */
+    static normalizeContent(content) {
+        if (typeof content === 'string') {
+            return [
+                {
+                    "type": "text",
+                    "text": content
+                }
+            ];
+        }
+        return content;
+    }
+
+    /**
+     * 合并两个内容数组
+     * @param {Array} content1 第一个内容数组
+     * @param {Array} content2 第二个内容数组
+     * @returns {Array} 合并后的内容数组
+     */
+    static mergeContents(content1, content2) {
+        // 如果第一个数组长度为1且type是text
+        if (content1.length === 1 && content1[0].type === 'text') {
+            // 如果第二个数组长度为1且type也是text，合并text内容
+            if (content2.length === 1 && content2[0].type === 'text') {
+                return [
+                    {
+                        "type": "text",
+                        "text": content1[0].text + '\n' + content2[0].text
+                    }
+                ];
+            } else {
+                // 第二个数组不是单纯的text或包含其他类型，不合并
+                return [...content1, ...content2];
+            }
+        } else {
+            // 第一个数组不是单纯的text或包含其他类型，直接拼接
+            return [...content1, ...content2];
+        }
+    }
+
+    /**
      * 合并连续相同role的消息
      * @param {Array} messages OpenAI格式的消息数组
      * @returns {Array} 合并后的消息数组
@@ -121,6 +164,9 @@ class MessageUtils {
             current.role = 'user';
         }
         
+        // 标准化第一个消息的内容
+        current.content = this.normalizeContent(current.content);
+        
         for (let i = 1; i < messages.length; i++) {
             let message = { ...messages[i] };
             
@@ -129,11 +175,12 @@ class MessageUtils {
                 message.role = 'user';
             }
             
-            // 如果role相同，合并内容
+            // 标准化消息内容
+            message.content = this.normalizeContent(message.content);
+            
+            // 如果role相同，尝试合并内容
             if (current.role === message.role) {
-                if (typeof current.content === 'string' && typeof message.content === 'string') {
-                    current.content += '\n' + message.content;
-                }
+                current.content = this.mergeContents(current.content, message.content);
             } else {
                 merged.push(current);
                 current = message;
@@ -153,13 +200,10 @@ class MessageUtils {
     static convertToInkeepFormat(messages, params = {}) {
         return {
             model: params.model || 'inkeep-context-expert',
-            messages: messages.map(msg => ({
-                role: msg.role,
-                content: msg.content
-            })),
+            messages: messages,
             temperature: params.temperature || 0.7,
             top_p: params.top_p || 1,
-            max_tokens: params.max_tokens || 4096,
+            max_tokens: params.max_tokens || 2048,
             frequency_penalty: params.frequency_penalty || 0,
             presence_penalty: params.presence_penalty || 0,
             stream: params.stream || false
@@ -173,20 +217,6 @@ class MessageUtils {
      * @returns {Object} OpenAI格式的响应
      */
     static convertFromInkeepFormat(inkeepResponse, model) {
-        let content = 'No response';
-        
-        try {
-            const rawContent = inkeepResponse.choices[0]?.message?.content;
-            if (rawContent) {
-                // 尝试解析content中的JSON
-                const parsedContent = JSON.parse(rawContent);
-                content = parsedContent.content || rawContent;
-            }
-        } catch (error) {
-            // 如果JSON解析失败，使用原始内容
-            content = inkeepResponse.choices[0]?.message?.content || 'No response';
-        }
-        
         // 构造标准格式
         return {
             id: 'chatcmpl-' + Math.random().toString(36).substr(2, 9),
@@ -197,9 +227,9 @@ class MessageUtils {
                 index: 0,
                 message: {
                     role: 'assistant',
-                    content: content
+                    content: inkeepResponse.choices[0].message.content || 'No response'
                 },
-                finish_reason: inkeepResponse.choices[0]?.finish_reason || 'stop'
+                finish_reason: 'stop'
             }],
             usage: {
                 prompt_tokens: inkeepResponse.usage?.prompt_tokens || 0,
@@ -273,6 +303,7 @@ class ResponseHandler {
                             const dataContent = line.trim().substring(6);
                             
                             if (dataContent === '[DONE]') {
+                                res.write('data: [DONE]\n\n');
                                 continue;
                             }
 
