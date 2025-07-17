@@ -218,6 +218,19 @@ class MessageUtils {
      */
     static convertFromInkeepFormat(inkeepResponse, model) {
         // 构造标准格式
+        let content = 'No response';
+        
+        try {
+            const rawContent = inkeepResponse.choices[0]?.message?.content;
+            if (rawContent) {
+                // 尝试解析content中的JSON
+                const parsedContent = JSON.parse(rawContent);
+                content = parsedContent.content || rawContent;
+            }
+        } catch (error) {
+            // 如果JSON解析失败，使用原始内容
+            content = inkeepResponse.choices[0]?.message?.content || 'No response';
+        }        
         return {
             id: 'chatcmpl-' + Math.random().toString(36).substr(2, 9),
             object: 'chat.completion',
@@ -227,7 +240,7 @@ class MessageUtils {
                 index: 0,
                 message: {
                     role: 'assistant',
-                    content: inkeepResponse.choices[0].message.content || 'No response'
+                    content: content
                 },
                 finish_reason: 'stop'
             }],
@@ -502,6 +515,7 @@ app.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
         // 转换为Inkeep API格式
         const inkeepRequest = MessageUtils.convertToInkeepFormat(mergedMessages, requestParams);
         
+        
         console.log(`[${new Date().toISOString()}] Inkeep request prepared for model: ${inkeepModel}`);
         
         // 调用Inkeep API
@@ -603,6 +617,7 @@ app.use('*', (req, res) => {
         }
     });
 });
+
 
 if(INKEEP_CONFIG.DEFAULT_AUTH_TOKEN === null){
     console.log('请设置INKEEP_AUTH_TOKEN');
