@@ -105,102 +105,73 @@ class InkeepChallenge {
 // 工具类
 class MessageUtils {
     /**
-     * 将字符串内容转换为数组形式
+     * 提取消息中的文本内容
      * @param {string|Array} content 消息内容
-     * @returns {Array} 转换后的内容数组
+     * @returns {string} 提取的文本内容
      */
-    static normalizeContent(content) {
+    static extractTextContent(content) {
         if (typeof content === 'string') {
-            return [
-                {
-                    "type": "text",
-                    "text": content
-                }
-            ];
+            return content;
         }
-        return content;
+        
+        if (Array.isArray(content)) {
+            return content
+                .filter(item => item.type === 'text')
+                .map(item => item.text)
+                .join('');
+        }
+        
+        return '';
     }
 
     /**
-     * 合并两个内容数组
-     * @param {Array} content1 第一个内容数组
-     * @param {Array} content2 第二个内容数组
-     * @returns {Array} 合并后的内容数组
-     */
-    static mergeContents(content1, content2) {
-        // 如果第一个数组长度为1且type是text
-        if (content1.length === 1 && content1[0].type === 'text') {
-            // 如果第二个数组长度为1且type也是text，合并text内容
-            if (content2.length === 1 && content2[0].type === 'text') {
-                return [
-                    {
-                        "type": "text",
-                        "text": content1[0].text + '\n' + content2[0].text
-                    }
-                ];
-            } else {
-                // 第二个数组不是单纯的text或包含其他类型，不合并
-                return [...content1, ...content2];
-            }
-        } else {
-            // 第一个数组不是单纯的text或包含其他类型，直接拼接
-            return [...content1, ...content2];
-        }
-    }
-
-    /**
-     * 合并连续相同role的消息
+     * 转换消息为格式化字符串
      * @param {Array} messages OpenAI格式的消息数组
-     * @returns {Array} 合并后的消息数组
+     * @returns {string} 格式化的消息字符串
      */
-    static mergeMessages(messages) {
-        if (!messages || messages.length === 0) return [];
+    static convertMessagesToFormattedString(messages) {
+        if (!messages || messages.length === 0) return '';
         
-        const merged = [];
-        let current = { ...messages[0] };
+        const formattedMessages = [];
         
-        // 如果第一个消息是system，转换为user
-        if (current.role === 'system') {
-            current.role = 'user';
-        }
-        
-        // 标准化第一个消息的内容
-        current.content = this.normalizeContent(current.content);
-        
-        for (let i = 1; i < messages.length; i++) {
-            let message = { ...messages[i] };
+        for (const message of messages) {
+            const role = message.role.toUpperCase();
+            const textContent = this.extractTextContent(message.content);
             
-            // 如果当前消息是system，转换为user
-            if (message.role === 'system') {
-                message.role = 'user';
-            }
-            
-            // 标准化消息内容
-            message.content = this.normalizeContent(message.content);
-            
-            // 如果role相同，尝试合并内容
-            if (current.role === message.role) {
-                current.content = this.mergeContents(current.content, message.content);
-            } else {
-                merged.push(current);
-                current = message;
+            if (textContent.trim()) {
+                formattedMessages.push(`${role}: ${textContent}`);
             }
         }
         
-        merged.push(current);
-        return merged;
+        return formattedMessages.join('\n');
     }
     
     /**
      * 转换OpenAI消息格式为Inkeep格式
-     * @param {Array} messages 合并后的消息数组
+     * @param {Array} messages 消息数组
      * @param {Object} params 其他参数
      * @returns {Object} Inkeep API格式的请求体
      */
     static convertToInkeepFormat(messages, params = {}) {
+        // 将所有消息转换为一个格式化字符串
+        const formattedContent = this.convertMessagesToFormattedString(messages);
+        
+        // 构建单个user消息
+        const inkeepMessages = [
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'text',
+                        text: formattedContent
+                    }
+                ]
+            }
+        ];
+        
         return {
             model: params.model || 'inkeep-context-expert',
-            messages: messages,
+            messages: inkeepMessages,
             temperature: params.temperature || 0.7,
             top_p: params.top_p || 1,
             max_tokens: params.max_tokens || 2048,
@@ -493,9 +464,6 @@ app.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
         
         console.log(`[${new Date().toISOString()}] Chat completion request: model=${model}, stream=${stream}, messages=${messages.length}`);
         
-        // 合并连续相同role的消息
-        const mergedMessages = MessageUtils.mergeMessages(messages);
-        
         // 映射模型名称
         const inkeepModel = config.modelMapping[model] || 'inkeep-context-expert';
         
@@ -513,8 +481,7 @@ app.post('/v1/chat/completions', authenticateApiKey, async (req, res) => {
         if (presence_penalty !== undefined) requestParams.presence_penalty = presence_penalty;
         
         // 转换为Inkeep API格式
-        const inkeepRequest = MessageUtils.convertToInkeepFormat(mergedMessages, requestParams);
-        
+        const inkeepRequest = MessageUtils.convertToInkeepFormat(messages, requestParams);
         
         console.log(`[${new Date().toISOString()}] Inkeep request prepared for model: ${inkeepModel}`);
         
