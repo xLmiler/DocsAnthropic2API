@@ -31,7 +31,7 @@ const config = {
     
     // 模型映射配置
     modelMapping: {
-        'claude-3-7-sonnet-20250219': 'inkeep-context-expert'
+        'claude-3-7-sonnet-20250219': 'inkeep-qa-expert'
     }
 };
 
