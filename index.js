@@ -20,8 +20,8 @@ const INKEEP_CONFIG = {
     CHALLENGE_URL: 'https://api.inkeep.com/v1/challenge',
     CHAT_URL: 'https://api.inkeep.com/v1/chat/completions',
     DEFAULT_AUTH_TOKEN: process.env.INKEEP_AUTH_TOKEN || null,
-    DEFAULT_REFERER: 'https://docs.anthropic.com/',
-    DEFAULT_ORIGIN: 'https://docs.anthropic.com'
+    DEFAULT_REFERER: 'https://docs.claude.com/',
+    DEFAULT_ORIGIN: 'https://docs.claude.com'
 };
 
 // 全局配置
@@ -595,3 +595,4 @@ if(INKEEP_CONFIG.DEFAULT_AUTH_TOKEN === null){
 app.listen(PORT, () => {
     console.log(`Inkeep API Proxy Server is running on port ${PORT}`);
 });
+
